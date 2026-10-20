@@ -1,22 +1,22 @@
 <!doctype html>
-<html lang="fr">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Lien indisponible</title>
+  <title>Link Unavailable</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
   <main class="card">
-    <h1>Lien indisponible</h1>
+    <h1>Link Unavailable</h1>
     {% if status == 'expired' %}
-      <p>Ce lien a expiré. Demande un nouveau lien à la personne qui te l'a partagé.</p>
+      <p>This link has expired. Request a new link from the sender.</p>
     {% elif status == 'used' %}
-      <p>Ce lien a déjà été utilisé.</p>
+      <p>This link has already been used and is no longer valid.</p>
     {% elif status == 'inactive' %}
-      <p>Ce lien a été désactivé.</p>
+      <p>This link has been deactivated by the administrator.</p>
     {% else %}
-      <p>Ce lien n'existe pas ou n'est plus disponible.</p>
+      <p>This link is invalid or does not exist.</p>
     {% endif %}
   </main>
 </body>

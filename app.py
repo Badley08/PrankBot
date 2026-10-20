@@ -32,9 +32,9 @@ app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = MAX_PHOTO_BYTES + 256 * 1024
 
 if not BOT_TOKEN:
-    logger.warning("TELEGRAM_BOT_TOKEN is not set. Telegram API calls will fail until configured.")
+    logger.warning("TELEGRAM_BOT_TOKEN is not configured. Telegram API interactions will fail.")
 if not WEBHOOK_SECRET:
-    logger.warning("TELEGRAM_WEBHOOK_SECRET is not set. Set a long random secret before deployment.")
+    logger.warning("TELEGRAM_WEBHOOK_SECRET is not configured. Configure a secret prior to production deployment.")
 
 TELEGRAM_API = f"https://api.telegram.org/bot{BOT_TOKEN}" if BOT_TOKEN else ""
 
@@ -87,16 +87,16 @@ def log_event(event_type, token=None, details=None):
                 (token, event_type, int(time.time()), json.dumps(details or {}, ensure_ascii=False)[:1000])
             )
     except Exception:
-        logger.exception("Could not write event")
+        logger.exception("Failed to persist event log")
 
 
 init_db()
 
 
-# -------------------- Telegram helpers --------------------
+# -------------------- Telegram Helpers --------------------
 def telegram_call(method, payload=None, files=None, timeout=20):
     if not BOT_TOKEN:
-        raise RuntimeError("TELEGRAM_BOT_TOKEN is not configured")
+        raise RuntimeError("TELEGRAM_BOT_TOKEN is not configured.")
     response = requests.post(
         f"{TELEGRAM_API}/{method}",
         data=payload or {},
@@ -106,7 +106,7 @@ def telegram_call(method, payload=None, files=None, timeout=20):
     response.raise_for_status()
     data = response.json()
     if not data.get("ok"):
-        raise RuntimeError(f"Telegram API error: {data.get('description', 'unknown error')}")
+        raise RuntimeError(f"Telegram API response error: {data.get('description', 'Unknown error')}")
     return data.get("result")
 
 
@@ -121,7 +121,7 @@ def answer_callback(callback_query_id, text=""):
     try:
         telegram_call("answerCallbackQuery", {"callback_query_id": callback_query_id, "text": text[:180]})
     except Exception:
-        logger.exception("Could not answer callback")
+        logger.exception("Failed to answer callback query")
 
 
 def create_link(owner_chat_id):
@@ -138,7 +138,6 @@ def create_link(owner_chat_id):
 
 
 def request_host_fallback():
-    # Used only if PUBLIC_BASE_URL wasn't configured; set PUBLIC_BASE_URL in production.
     return request.url_root.rstrip("/")
 
 
@@ -185,7 +184,7 @@ def owner_only(fn):
     return wrapper
 
 
-# -------------------- Rate limiting --------------------
+# -------------------- Rate Limiting --------------------
 def rate_limited(key):
     now = int(time.time())
     window = now // 60
@@ -205,7 +204,7 @@ def rate_limited(key):
     return False
 
 
-# -------------------- Telegram webhook --------------------
+# -------------------- Telegram Webhook --------------------
 def is_owner_chat(chat_id):
     return bool(OWNER_CHAT_ID) and str(chat_id) == str(OWNER_CHAT_ID)
 
@@ -222,43 +221,44 @@ def process_message(message):
     if command in ("/start", "/help"):
         send_message(
             chat_id,
-            "Salut ! Je crée des liens de selfie volontaire.\n\n"
-            "Commandes :\n"
-            "/link — créer un lien de selfie\n"
-            "/help — afficher cette aide\n"
-            "/cancel — annuler les liens actifs que tu as créés\n\n"
-            "Important : la personne qui ouvre le lien voit une explication, "
-            "doit autoriser la caméra, puis confirmer explicitement l'envoi de la photo."
+            "PrankBot — Consent-based selfie link generator.\n\n"
+            "Available commands:\n"
+            "/link — Generate a single-use selfie link\n"
+            "/stats — View link generation metrics\n"
+            "/cancel — Deactivate all currently active links\n"
+            "/help — Show this help message\n\n"
+            "Notice: Recipients receive an explicit notice explaining that the captured photo "
+            "will be forwarded to the bot administrator upon confirmation."
         )
         return
 
     if command == "/link":
         if not is_owner_chat(chat_id):
-            send_message(chat_id, "Désolé, la création de liens est réservée au propriétaire de ce bot.")
+            send_message(chat_id, "Access denied. Link generation is restricted to the administrator.")
             return
         link = create_link(chat_id)
         send_message(
             chat_id,
-            f"Voici ton lien (valable {LINK_TTL_MINUTES} minutes et utilisable une seule fois) :\n{link}\n\n"
-            "Partage-le uniquement dans un contexte honnête. La page indique clairement que la photo sera envoyée au propriétaire du bot."
+            f"Selfie link generated (valid for {LINK_TTL_MINUTES} minutes, single use only):\n{link}\n\n"
+            "The webpage requires camera authorization and explicit confirmation prior to photo transmission."
         )
         return
 
     if command == "/cancel":
         if not is_owner_chat(chat_id):
-            send_message(chat_id, "Cette commande est réservée au propriétaire du bot.")
+            send_message(chat_id, "Access denied. This command is restricted to the administrator.")
             return
         with db() as conn:
             cur = conn.execute(
                 "UPDATE links SET status = 'cancelled' WHERE owner_chat_id = ? AND status = 'active' AND used_at IS NULL",
                 (str(chat_id),)
             )
-        send_message(chat_id, f"OK, {cur.rowcount} lien(s) actif(s) annulé(s).")
+        send_message(chat_id, f"Operation confirmed. {cur.rowcount} active link(s) cancelled.")
         return
 
     if command == "/stats":
         if not is_owner_chat(chat_id):
-            send_message(chat_id, "Cette commande est réservée au propriétaire du bot.")
+            send_message(chat_id, "Access denied. This command is restricted to the administrator.")
             return
         with db() as conn:
             total = conn.execute("SELECT COUNT(*) n FROM links").fetchone()["n"]
@@ -267,11 +267,17 @@ def process_message(message):
                 (int(time.time()),)
             ).fetchone()["n"]
             used = conn.execute("SELECT COUNT(*) n FROM links WHERE used_at IS NOT NULL").fetchone()["n"]
-        send_message(chat_id, f"Statistiques\nLiens créés : {total}\nLiens actifs : {active}\nLiens utilisés : {used}")
+        send_message(
+            chat_id,
+            f"Link Metrics:\n"
+            f"Total generated: {total}\n"
+            f"Active: {active}\n"
+            f"Used: {used}"
+        )
         return
 
     if command:
-        send_message(chat_id, "Commande inconnue. Utilise /help pour voir les commandes disponibles.")
+        send_message(chat_id, "Unrecognized command. Use /help to display available commands.")
 
 
 @app.post("/telegram/webhook")
@@ -284,14 +290,13 @@ def telegram_webhook():
         if "message" in update:
             process_message(update["message"])
         elif "callback_query" in update:
-            answer_callback(update["callback_query"].get("id"), "Aucune action disponible.")
+            answer_callback(update["callback_query"].get("id"), "Action completed.")
     except Exception:
-        # Avoid retries being stuck on app-level errors; details go to server logs.
         logger.exception("Failed to process Telegram update")
     return jsonify({"ok": True})
 
 
-# -------------------- Public selfie flow --------------------
+# -------------------- Public Selfie Flow --------------------
 @app.get("/")
 def index():
     return render_template("home.html")
@@ -313,54 +318,52 @@ def selfie_page(token):
 @app.get("/api/session/<token>")
 def session_info(token):
     if rate_limited("info:" + request.remote_addr):
-        return jsonify({"ok": False, "error": "Trop de requêtes. Réessaie dans une minute."}), 429
+        return jsonify({"ok": False, "error": "Rate limit exceeded. Please retry in one minute."}), 429
     status = link_status(token)
     if status != "active":
         return jsonify({"ok": False, "error": status}), 410 if status != "not_found" else 404
     return jsonify({
         "ok": True,
-        "message": "Tu peux choisir de prendre un selfie. La photo sera envoyée au propriétaire du bot seulement après ta confirmation."
+        "message": "Camera access is optional. The photo is submitted to the bot administrator only upon explicit confirmation."
     })
 
 
 @app.post("/api/session/<token>/submit")
 def submit_selfie(token):
     if rate_limited("submit:" + request.remote_addr):
-        return jsonify({"ok": False, "error": "Trop de tentatives. Réessaie dans une minute."}), 429
+        return jsonify({"ok": False, "error": "Rate limit exceeded. Please retry in one minute."}), 429
 
     status = link_status(token)
     if status != "active":
-        return jsonify({"ok": False, "error": "Ce lien est expiré, déjà utilisé ou invalide."}), 410
+        return jsonify({"ok": False, "error": "Link is expired, inactive, or already used."}), 410
 
-    # The client must affirm consent explicitly. This is not a substitute for the visible consent UI.
     if request.form.get("consent") != "yes":
-        return jsonify({"ok": False, "error": "Tu dois confirmer l'envoi de la photo."}), 400
+        return jsonify({"ok": False, "error": "Explicit user confirmation is required."}), 400
 
     upload = request.files.get("photo")
     if upload is None or not upload.filename:
-        return jsonify({"ok": False, "error": "Aucune photo reçue."}), 400
+        return jsonify({"ok": False, "error": "No photo payload received."}), 400
 
     mimetype = (upload.mimetype or "").lower()
     if mimetype not in ("image/jpeg", "image/png", "image/webp"):
-        return jsonify({"ok": False, "error": "Format refusé. Utilise JPEG, PNG ou WebP."}), 415
+        return jsonify({"ok": False, "error": "Unsupported file format. Supported formats: JPEG, PNG, WebP."}), 415
 
     photo = upload.read(MAX_PHOTO_BYTES + 1)
     if not photo or len(photo) > MAX_PHOTO_BYTES:
-        return jsonify({"ok": False, "error": "Photo vide ou trop volumineuse."}), 413
+        return jsonify({"ok": False, "error": "File is empty or exceeds the maximum permitted size."}), 413
 
-    # Consume atomically before forwarding, preventing reuse/race conditions.
     if not consume_link(token):
-        return jsonify({"ok": False, "error": "Ce lien a déjà été utilisé ou a expiré."}), 410
+        return jsonify({"ok": False, "error": "Link has already been consumed or has expired."}), 410
 
     row = get_link(token)
     owner = row["owner_chat_id"] if row else OWNER_CHAT_ID
     if not owner:
-        return jsonify({"ok": False, "error": "Le propriétaire du bot n'est pas configuré."}), 503
+        return jsonify({"ok": False, "error": "Bot administrator chat ID is not configured."}), 503
 
     try:
         caption = (
-            "Selfie envoyé avec confirmation explicite depuis la page web.\n"
-            f"Référence : {token[:8]}…"
+            "Selfie submitted via web interface with explicit user consent.\n"
+            f"Reference: {token[:8]}..."
         )
         telegram_call(
             "sendPhoto",
@@ -369,20 +372,20 @@ def submit_selfie(token):
             timeout=30
         )
     except Exception:
-        logger.exception("Failed to forward confirmed photo")
+        logger.exception("Failed to forward photo payload")
         log_event("photo_forward_failed", token)
-        return jsonify({"ok": False, "error": "Envoi impossible pour le moment. Contacte le propriétaire du bot."}), 502
+        return jsonify({"ok": False, "error": "Transmission failed. Please notify the administrator."}), 502
 
     log_event("photo_sent_with_consent", token, {"bytes": len(photo), "mimetype": mimetype})
-    return jsonify({"ok": True, "message": "Photo envoyée. Tu peux fermer cette page."})
+    return jsonify({"ok": True, "message": "Photo submitted successfully. You may close this page."})
 
 
-# -------------------- Webhook setup helper endpoint --------------------
+# -------------------- Webhook Setup Endpoints --------------------
 @app.post("/admin/set-webhook")
 @owner_only
 def set_webhook():
     if not PUBLIC_BASE_URL or not WEBHOOK_SECRET:
-        return jsonify({"ok": False, "error": "Configure PUBLIC_BASE_URL et TELEGRAM_WEBHOOK_SECRET."}), 400
+        return jsonify({"ok": False, "error": "PUBLIC_BASE_URL and TELEGRAM_WEBHOOK_SECRET must be configured."}), 400
     webhook_url = f"{PUBLIC_BASE_URL}/telegram/webhook"
     try:
         result = telegram_call("setWebhook", {
@@ -393,7 +396,7 @@ def set_webhook():
         })
         return jsonify({"ok": True, "webhook_url": webhook_url, "result": result})
     except Exception as exc:
-        logger.exception("setWebhook failed")
+        logger.exception("setWebhook call failed")
         return jsonify({"ok": False, "error": str(exc)}), 502
 
 
@@ -404,13 +407,13 @@ def delete_webhook():
         result = telegram_call("deleteWebhook", {"drop_pending_updates": "false"})
         return jsonify({"ok": True, "result": result})
     except Exception as exc:
-        logger.exception("deleteWebhook failed")
+        logger.exception("deleteWebhook call failed")
         return jsonify({"ok": False, "error": str(exc)}), 502
 
 
 @app.errorhandler(413)
 def too_large(_):
-    return jsonify({"ok": False, "error": "Fichier trop volumineux."}), 413
+    return jsonify({"ok": False, "error": "Payload exceeds allowed size limit."}), 413
 
 
 if __name__ == "__main__":
