@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Envoyer un selfie</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <main class="card">
+    <p class="eyebrow">PHOTO VOLONTAIRE</p>
+    <h1>Prendre un selfie</h1>
+    <p>Cette page peut utiliser ta caméra seulement si tu l'autorises dans ton navigateur.</p>
+    <div class="notice">
+      <strong>Avant de continuer</strong>
+      <p>Si tu choisis d'envoyer une photo, elle sera transmise au propriétaire du bot Telegram qui a créé ce lien. N'envoie rien si tu n'es pas à l'aise avec cela.</p>
+    </div>
+
+    <label class="check">
+      <input id="consent" type="checkbox">
+      <span>Je comprends que la photo que je confirme sera envoyée au propriétaire du bot, et je souhaite continuer.</span>
+    </label>
+
+    <div class="actions">
+      <button id="start" type="button">Autoriser la caméra</button>
+      <button id="capture" type="button" disabled>Prendre le selfie</button>
+    </div>
+
+    <video id="video" autoplay playsinline muted hidden></video>
+    <canvas id="canvas" hidden></canvas>
+    <img id="preview" alt="Aperçu du selfie" hidden>
+    <div class="actions">
+      <button id="retake" type="button" class="secondary" hidden>Reprendre</button>
+      <button id="send" type="button" disabled hidden>Confirmer et envoyer</button>
+    </div>
+    <p id="status" role="status" aria-live="polite"></p>
+    <p class="small">Le selfie n'est pas envoyé tant que tu n'as pas appuyé sur « Confirmer et envoyer ».</p>
+  </main>
+  <script>
+    const token = {{ token|tojson }};
+    const consent = document.getElementById('consent');
+    const start = document.getElementById('start');
+    const capture = document.getElementById('capture');
+    const retake = document.getElementById('retake');
+    const send = document.getElementById('send');
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('canvas');
+    const preview = document.getElementById('preview');
+    const status = document.getElementById('status');
+    let stream = null;
+    let photoBlob = null;
+
+    function say(message) { status.textContent = message; }
+
+    consent.addEventListener('change', () => {
+      start.disabled = !consent.checked;
+      if (!consent.checked) stopCamera();
+    });
+
+    function stopCamera() {
+      if (stream) {
+        stream.getTracks().forEach(track => track.stop());
+        stream = null;
+      }
+      video.srcObject = null;
+    }
+
+    start.addEventListener('click', async () => {
+      if (!consent.checked) {
+        say("Coche d'abord la case de consentement.");
+        return;
+      }
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        say("La caméra n'est pas disponible. Vérifie que le site est ouvert en HTTPS dans un navigateur compatible.");
+        return;
+      }
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({video: {facingMode: "user"}, audio: false});
+        video.srcObject = stream;
+        video.hidden = false;
+        capture.disabled = false;
+        start.disabled = true;
+        say("Caméra activée. Prends ton selfie quand tu es prêt.");
+      } catch (e) {
+        say("Accès à la caméra refusé ou indisponible. Tu peux réessayer si tu le souhaites.");
+      }
+    });
+
+    capture.addEventListener('click', () => {
+      if (!consent.checked || !stream || !video.videoWidth) {
+        say("Autorise la caméra et vérifie que l'aperçu est disponible.");
+        return;
+      }
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      canvas.getContext('2d').drawImage(video, 0, 0);
+      canvas.toBlob(blob => {
+        if (!blob) {
+          say("Impossible de préparer la photo. Réessaie.");
+          return;
+        }
+        photoBlob = blob;
+        preview.src = URL.createObjectURL(blob);
+        preview.hidden = false;
+        video.hidden = true;
+        capture.hidden = true;
+        retake.hidden = false;
+        send.hidden = false;
+        send.disabled = false;
+        stopCamera();
+        say("Vérifie l'aperçu. Rien n'a encore été envoyé.");
+      }, 'image/jpeg', 0.88);
+    });
+
+    retake.addEventListener('click', () => {
+      photoBlob = null;
+      preview.hidden = true;
+      capture.hidden = false;
+      retake.hidden = true;
+      send.hidden = true;
+      send.disabled = true;
+      start.disabled = false;
+      say("Tu peux reprendre la photo si tu le souhaites.");
+    });
+
+    send.addEventListener('click', async () => {
+      if (!consent.checked || !photoBlob) {
+        say("Confirme ton choix et prends une photo avant l'envoi.");
+        return;
+      }
+      send.disabled = true;
+      say("Envoi en cours…");
+      const form = new FormData();
+      form.append('photo', photoBlob, 'selfie.jpg');
+      form.append('consent', 'yes');
+      try {
+        const response = await fetch(`/api/session/${encodeURIComponent(token)}/submit`, {
+          method: 'POST',
+          body: form
+        });
+        const data = await response.json();
+        if (!response.ok || !data.ok) throw new Error(data.error || "L'envoi a échoué.");
+        say(data.message || "Photo envoyée.");
+        start.disabled = true;
+        capture.disabled = true;
+        retake.disabled = true;
+      } catch (e) {
+        say(e.message || "Impossible d'envoyer la photo. Réessaie plus tard.");
+        send.disabled = false;
+      }
+    });
+
+    window.addEventListener('pagehide', stopCamera);
+    start.disabled = true;
+    fetch(`/api/session/${encodeURIComponent(token)}`)
+      .then(r => r.json())
+      .then(data => { if (!data.ok) { start.disabled = true; capture.disabled = true; send.disabled = true; say("Ce lien n'est plus disponible."); } })
+      .catch(() => say("Impossible de vérifier le lien. Réessaie plus tard."));
+  </script>
+</body>
+</html>

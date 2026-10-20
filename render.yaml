@@ -1,0 +1,29 @@
+services:
+  - type: web
+    name: prank-selfie-bot
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app --workers 1 --threads 4 --timeout 60
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_BOT_USERNAME
+        sync: false
+      - key: OWNER_CHAT_ID
+        sync: false
+      - key: PUBLIC_BASE_URL
+        sync: false
+      - key: TELEGRAM_WEBHOOK_SECRET
+        sync: false
+      - key: OWNER_ADMIN_KEY
+        sync: false
+      - key: DATABASE_PATH
+        value: /tmp/prankbot.sqlite3
+      - key: LINK_TTL_MINUTES
+        value: 60
+      - key: MAX_PHOTO_BYTES
+        value: 8388608
