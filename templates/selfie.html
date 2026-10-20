@@ -1,43 +1,44 @@
 <!doctype html>
-<html lang="fr">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Envoyer un selfie</title>
+  <title>Selfie Submission</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
-  <main class="card">
-    <p class="eyebrow">PHOTO VOLONTAIRE</p>
-    <h1>Prendre un selfie</h1>
-    <p>Cette page peut utiliser ta caméra seulement si tu l'autorises dans ton navigateur.</p>
+  <main class="card" id="session-container" data-token="{{ token }}">
+    <p class="eyebrow">CONSENT-BASED CAPTURE</p>
+    <h1>Take a Selfie</h1>
+    <p>This page accesses your camera only if explicitly permitted in your browser settings.</p>
     <div class="notice">
-      <strong>Avant de continuer</strong>
-      <p>Si tu choisis d'envoyer une photo, elle sera transmise au propriétaire du bot Telegram qui a créé ce lien. N'envoie rien si tu n'es pas à l'aise avec cela.</p>
+      <strong>Before Proceeding</strong>
+      <p>If you choose to submit a photo, it will be forwarded directly to the Telegram bot administrator who generated this link. Do not proceed if you do not agree to this transmission.</p>
     </div>
 
     <label class="check">
       <input id="consent" type="checkbox">
-      <span>Je comprends que la photo que je confirme sera envoyée au propriétaire du bot, et je souhaite continuer.</span>
+      <span>I understand that the photo I confirm will be transmitted to the bot administrator, and I wish to proceed.</span>
     </label>
 
     <div class="actions">
-      <button id="start" type="button">Autoriser la caméra</button>
-      <button id="capture" type="button" disabled>Prendre le selfie</button>
+      <button id="start" type="button">Authorize Camera</button>
+      <button id="capture" type="button" disabled>Capture Selfie</button>
     </div>
 
     <video id="video" autoplay playsinline muted hidden></video>
     <canvas id="canvas" hidden></canvas>
-    <img id="preview" alt="Aperçu du selfie" hidden>
+    <img id="preview" alt="Selfie preview" hidden>
     <div class="actions">
-      <button id="retake" type="button" class="secondary" hidden>Reprendre</button>
-      <button id="send" type="button" disabled hidden>Confirmer et envoyer</button>
+      <button id="retake" type="button" class="secondary" hidden>Retake</button>
+      <button id="send" type="button" disabled hidden>Confirm and Send</button>
     </div>
     <p id="status" role="status" aria-live="polite"></p>
-    <p class="small">Le selfie n'est pas envoyé tant que tu n'as pas appuyé sur « Confirmer et envoyer ».</p>
+    <p class="small">The photo is not transmitted until you select "Confirm and Send".</p>
   </main>
   <script>
-    const token = {{ token|tojson }};
+    const sessionContainer = document.getElementById('session-container');
+    const token = sessionContainer ? sessionContainer.dataset.token : '';
     const consent = document.getElementById('consent');
     const start = document.getElementById('start');
     const capture = document.getElementById('capture');
@@ -67,11 +68,11 @@
 
     start.addEventListener('click', async () => {
       if (!consent.checked) {
-        say("Coche d'abord la case de consentement.");
+        say("Please check the consent box first.");
         return;
       }
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        say("La caméra n'est pas disponible. Vérifie que le site est ouvert en HTTPS dans un navigateur compatible.");
+        say("Camera access is not available. Please verify that this page is loaded over HTTPS in a supported browser.");
         return;
       }
       try {
@@ -80,15 +81,15 @@
         video.hidden = false;
         capture.disabled = false;
         start.disabled = true;
-        say("Caméra activée. Prends ton selfie quand tu es prêt.");
+        say("Camera initialized. Capture your selfie when ready.");
       } catch (e) {
-        say("Accès à la caméra refusé ou indisponible. Tu peux réessayer si tu le souhaites.");
+        say("Camera access was denied or is unavailable.");
       }
     });
 
     capture.addEventListener('click', () => {
       if (!consent.checked || !stream || !video.videoWidth) {
-        say("Autorise la caméra et vérifie que l'aperçu est disponible.");
+        say("Enable the camera and ensure video preview is active.");
         return;
       }
       canvas.width = video.videoWidth;
@@ -96,7 +97,7 @@
       canvas.getContext('2d').drawImage(video, 0, 0);
       canvas.toBlob(blob => {
         if (!blob) {
-          say("Impossible de préparer la photo. Réessaie.");
+          say("Failed to process image payload. Please retry.");
           return;
         }
         photoBlob = blob;
@@ -108,7 +109,7 @@
         send.hidden = false;
         send.disabled = false;
         stopCamera();
-        say("Vérifie l'aperçu. Rien n'a encore été envoyé.");
+        say("Review preview. No data has been transmitted yet.");
       }, 'image/jpeg', 0.88);
     });
 
@@ -120,16 +121,16 @@
       send.hidden = true;
       send.disabled = true;
       start.disabled = false;
-      say("Tu peux reprendre la photo si tu le souhaites.");
+      say("You can recapture your photo.");
     });
 
     send.addEventListener('click', async () => {
       if (!consent.checked || !photoBlob) {
-        say("Confirme ton choix et prends une photo avant l'envoi.");
+        say("Please confirm consent and capture a photo before sending.");
         return;
       }
       send.disabled = true;
-      say("Envoi en cours…");
+      say("Submitting payload...");
       const form = new FormData();
       form.append('photo', photoBlob, 'selfie.jpg');
       form.append('consent', 'yes');
@@ -139,13 +140,13 @@
           body: form
         });
         const data = await response.json();
-        if (!response.ok || !data.ok) throw new Error(data.error || "L'envoi a échoué.");
-        say(data.message || "Photo envoyée.");
+        if (!response.ok || !data.ok) throw new Error(data.error || "Submission failed.");
+        say(data.message || "Photo submitted successfully.");
         start.disabled = true;
         capture.disabled = true;
         retake.disabled = true;
       } catch (e) {
-        say(e.message || "Impossible d'envoyer la photo. Réessaie plus tard.");
+        say(e.message || "Failed to submit photo. Please retry later.");
         send.disabled = false;
       }
     });
@@ -154,8 +155,8 @@
     start.disabled = true;
     fetch(`/api/session/${encodeURIComponent(token)}`)
       .then(r => r.json())
-      .then(data => { if (!data.ok) { start.disabled = true; capture.disabled = true; send.disabled = true; say("Ce lien n'est plus disponible."); } })
-      .catch(() => say("Impossible de vérifier le lien. Réessaie plus tard."));
+      .then(data => { if (!data.ok) { start.disabled = true; capture.disabled = true; send.disabled = true; say("This link is no longer valid."); } })
+      .catch(() => say("Unable to verify link validity. Please retry later."));
   </script>
 </body>
 </html>
